@@ -20,11 +20,17 @@ import (
 )
 
 const (
-	TZ string = "TZ"
+	TZ                   string = "TZ"
+	PathRegularParamsEnv string = "/params/.env"
+	PathEmbedsParams     string = "embeds/params/"
+	PathRegularParams    string = "/params/"
 )
 
 type Paths []string
 type WorkDirPath string
+
+// Type value should contains viper.SupportedExts  = []string{"json", "toml", "yaml", "yml", "properties", "props", "prop", "hcl", "tfvars", "dotenv", "env", "ini"}
+type Type string
 type AppName string
 type TimeZone string
 type TimeOffset int
@@ -80,11 +86,12 @@ func initWorkDirPath() WorkDirPath {
 	return WorkDirPath(w)
 }
 
-func fromFS(embedFS fs.ReadFileFS, patterns []string, conf interface{}) (err error) {
+func fromFS(embedFS fs.ReadFileFS, patterns []string, conf interface{}, configType Type, appName AppName) (err error) {
+	viper.SetEnvPrefix(strings.ToUpper(string(appName)))
 	viper.AutomaticEnv()
 	replacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(replacer)
-	viper.SetConfigType("toml")
+	viper.SetConfigType(string(configType))
 
 	var matches []string
 	for i := range patterns {
@@ -101,12 +108,13 @@ func fromFS(embedFS fs.ReadFileFS, patterns []string, conf interface{}) (err err
 	return viper.Unmarshal(conf)
 }
 
-func fromFiles(patterns []string, conf interface{}, afs afero.Fs) (err error) {
+func fromFiles(patterns []string, conf interface{}, afs afero.Fs, configType Type, appName AppName) (err error) {
 	viper.SetFs(afs)
+	viper.SetEnvPrefix(strings.ToUpper(string(appName)))
 	viper.AutomaticEnv()
 	replacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(replacer)
-	viper.SetConfigType("toml")
+	viper.SetConfigType(string(configType))
 
 	var matches []string
 	for i := range patterns {
@@ -123,7 +131,7 @@ func fromFiles(patterns []string, conf interface{}, afs afero.Fs) (err error) {
 	return viper.Unmarshal(conf)
 }
 
-func NewConfig(ctx context.Context, cfg interface{}, embedFS *embed.FS, afs afero.Fs, configPaths Paths, appName AppName, tzArgs TimeZone) (rd *Config, err error) {
+func NewConfig(ctx context.Context, cfg interface{}, embedFS *embed.FS, afs afero.Fs, configPaths Paths, configType Type, appName AppName, tzArgs TimeZone) (rd *Config, err error) {
 	rd = &Config{}
 
 	type InitTZStruct struct {
@@ -152,21 +160,21 @@ func NewConfig(ctx context.Context, cfg interface{}, embedFS *embed.FS, afs afer
 		},
 		// Set env from regular file
 		func(c context.Context, _ interface{}) (r interface{}, e error) {
-			if _, er := afs.Stat(string(rd.workDirPath) + "/params/.env"); er == nil {
-				_ = godotenv.Overload(string(rd.workDirPath) + "/params/.env")
+			if _, er := afs.Stat(string(rd.workDirPath) + PathRegularParamsEnv); er == nil {
+				_ = godotenv.Overload(string(rd.workDirPath) + PathRegularParamsEnv)
 			}
 
 			return
 		},
 		// Load config from embed files
 		func(c context.Context, _ interface{}) (r interface{}, e error) {
-			cPFS := append(configPaths, "embeds/params/*.toml")
-			return nil, fromFS(embedFS, cPFS, &cfg)
+			cPFS := append(configPaths, PathEmbedsParamsFiles)
+			return nil, fromFS(embedFS, cPFS, &cfg, configType, appName)
 		},
 		// Load config from regular files
 		func(c context.Context, _ interface{}) (r interface{}, e error) {
-			cP := append(configPaths, fmt.Sprintf("%s/params/*.toml", rd.workDirPath))
-			return nil, fromFiles(cP, &cfg, afs)
+			cP := append(configPaths, fmt.Sprintf("%s%s", rd.workDirPath, PathRegularParamsFiles))
+			return nil, fromFiles(cP, &cfg, afs, configType, appName)
 		},
 		func(c context.Context, _ interface{}) (r interface{}, e error) {
 			return nil, defaults.Set(&cfg)
